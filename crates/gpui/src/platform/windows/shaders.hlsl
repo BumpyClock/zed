@@ -559,24 +559,62 @@ float4 backdrop_blur_downsample_fragment(BackdropBlurPassVertexOutput input) : S
     BackdropBlurParams params = backdrop_blur_params[0];
     float2 texel = 1.0 / max(params.input_size, float2(1.0, 1.0));
     float2 offset = texel * (params.offset + 0.5);
-    float4 color = float4(0.0, 0.0, 0.0, 0.0);
-    color += t_sprite.Sample(s_sprite, input.uv + float2(-offset.x, -offset.y));
-    color += t_sprite.Sample(s_sprite, input.uv + float2(offset.x, -offset.y));
-    color += t_sprite.Sample(s_sprite, input.uv + float2(-offset.x, offset.y));
-    color += t_sprite.Sample(s_sprite, input.uv + float2(offset.x, offset.y));
-    return color * 0.25;
+    float3 rgb_sum = float3(0.0, 0.0, 0.0);
+    float alpha_sum = 0.0;
+    float4 sample = t_sprite.Sample(s_sprite, input.uv + float2(-offset.x, -offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = t_sprite.Sample(s_sprite, input.uv + float2(offset.x, -offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = t_sprite.Sample(s_sprite, input.uv + float2(-offset.x, offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = t_sprite.Sample(s_sprite, input.uv + float2(offset.x, offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    float alpha = max(alpha_sum, 0.0001);
+    float3 rgb = linear_to_srgb(rgb_sum / alpha);
+    return float4(rgb, 1.0);
 }
 
 float4 backdrop_blur_upsample_fragment(BackdropBlurPassVertexOutput input) : SV_Target {
     BackdropBlurParams params = backdrop_blur_params[0];
     float2 texel = 1.0 / max(params.input_size, float2(1.0, 1.0));
     float2 offset = texel * (params.offset + 0.5);
-    float4 color = float4(0.0, 0.0, 0.0, 0.0);
-    color += t_sprite.Sample(s_sprite, input.uv + float2(-offset.x, -offset.y));
-    color += t_sprite.Sample(s_sprite, input.uv + float2(offset.x, -offset.y));
-    color += t_sprite.Sample(s_sprite, input.uv + float2(-offset.x, offset.y));
-    color += t_sprite.Sample(s_sprite, input.uv + float2(offset.x, offset.y));
-    return color * 0.25;
+    float3 rgb_sum = float3(0.0, 0.0, 0.0);
+    float alpha_sum = 0.0;
+    float4 sample = t_sprite.Sample(s_sprite, input.uv + float2(-offset.x, -offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = t_sprite.Sample(s_sprite, input.uv + float2(offset.x, -offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = t_sprite.Sample(s_sprite, input.uv + float2(-offset.x, offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = t_sprite.Sample(s_sprite, input.uv + float2(offset.x, offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    float alpha = max(alpha_sum, 0.0001);
+    float3 rgb = linear_to_srgb(rgb_sum / alpha);
+    return float4(rgb, 1.0);
 }
 
 BackdropBlurVertexOutput backdrop_blur_vertex(uint vertex_id: SV_VertexID, uint blur_id: SV_InstanceID) {

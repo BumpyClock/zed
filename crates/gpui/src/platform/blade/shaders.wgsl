@@ -571,24 +571,62 @@ fn vs_backdrop_blur_upsample(
 fn fs_backdrop_blur_downsample(input: BackdropBlurPassVarying) -> @location(0) vec4<f32> {
     let texel = 1.0 / max(backdrop_blur_params.input_size, vec2<f32>(1.0));
     let offset = texel * (backdrop_blur_params.offset + 0.5);
-    var color = vec4<f32>(0.0);
-    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, -offset.y));
-    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, -offset.y));
-    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, offset.y));
-    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, offset.y));
-    return color * 0.25;
+    var rgb_sum = vec3<f32>(0.0);
+    var alpha_sum = 0.0;
+    var sample = textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, -offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, -offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    let alpha = max(alpha_sum, 0.0001);
+    let rgb = linear_to_srgb(rgb_sum / alpha);
+    return vec4<f32>(rgb, 1.0);
 }
 
 @fragment
 fn fs_backdrop_blur_upsample(input: BackdropBlurPassVarying) -> @location(0) vec4<f32> {
     let texel = 1.0 / max(backdrop_blur_params.input_size, vec2<f32>(1.0));
     let offset = texel * (backdrop_blur_params.offset + 0.5);
-    var color = vec4<f32>(0.0);
-    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, -offset.y));
-    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, -offset.y));
-    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, offset.y));
-    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, offset.y));
-    return color * 0.25;
+    var rgb_sum = vec3<f32>(0.0);
+    var alpha_sum = 0.0;
+    var sample = textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, -offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, -offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    sample = textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, offset.y));
+    if (sample.a > 0.0) {
+        rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
+        alpha_sum += sample.a;
+    }
+    let alpha = max(alpha_sum, 0.0001);
+    let rgb = linear_to_srgb(rgb_sum / alpha);
+    return vec4<f32>(rgb, 1.0);
 }
 
 @vertex
