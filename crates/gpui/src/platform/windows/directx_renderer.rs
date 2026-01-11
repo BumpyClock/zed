@@ -117,6 +117,7 @@ struct DirectXRenderPipelines {
 struct DirectXGlobalElements {
     global_params_buffer: Option<ID3D11Buffer>,
     sampler: Option<ID3D11SamplerState>,
+    blur_sampler: Option<ID3D11SamplerState>,
 }
 
 struct DirectComposition {
@@ -339,10 +340,34 @@ impl DirectXRenderer {
             match batch {
                 PrimitiveBatch::Shadows(shadows) => self.draw_shadows(shadows),
                 PrimitiveBatch::BackdropBlurs(blurs) => {
-                    self.copy_render_target_to_backdrop()?;
-                    let max_radius = Self::max_backdrop_blur_radius(blurs);
-                    let blur_srv = self.run_backdrop_blur_passes(max_radius)?;
-                    self.draw_backdrop_blurs(blurs, &blur_srv)
+                    if blurs.is_empty() {
+                        Ok(())
+                    } else {
+                        self.copy_render_target_to_backdrop()?;
+                        let mut current_passes = None;
+                        let mut current_blur_srv = None;
+                        let mut start = 0;
+                        while start < blurs.len() {
+                            let passes =
+                                self.backdrop_blur_passes_for_radius(blurs[start].blur_radius.0);
+                            let mut end = start + 1;
+                            while end < blurs.len()
+                                && self.backdrop_blur_passes_for_radius(
+                                    blurs[end].blur_radius.0,
+                                ) == passes
+                            {
+                                end += 1;
+                            }
+                            if current_passes != Some(passes) {
+                                current_blur_srv =
+                                    self.run_backdrop_blur_passes_for_passes(passes)?;
+                                current_passes = Some(passes);
+                            }
+                            self.draw_backdrop_blurs(&blurs[start..end], &current_blur_srv)?;
+                            start = end;
+                        }
+                        Ok(())
+                    }
                 }
                 PrimitiveBatch::Quads(quads) => self.draw_quads(quads),
                 PrimitiveBatch::Paths(paths) => {
@@ -489,15 +514,9 @@ impl DirectXRenderer {
             slice::from_ref(source_srv),
             slice::from_ref(&resources.viewport),
             slice::from_ref(&self.globals.global_params_buffer),
-            slice::from_ref(&self.globals.sampler),
+            slice::from_ref(&self.globals.blur_sampler),
             blurs.len() as u32,
         )
-    }
-
-    fn max_backdrop_blur_radius(blurs: &[BackdropBlur]) -> f32 {
-        blurs
-            .iter()
-            .fold(0.0, |current, blur| current.max(blur.blur_radius.0))
     }
 
     fn backdrop_blur_passes_for_radius(&self, radius: f32) -> usize {
@@ -516,13 +535,12 @@ impl DirectXRenderer {
         passes.clamp(1, max_levels)
     }
 
-    fn run_backdrop_blur_passes(
+    fn run_backdrop_blur_passes_for_passes(
         &mut self,
-        radius: f32,
+        passes: usize,
     ) -> Result<Option<ID3D11ShaderResourceView>> {
         let devices = self.devices.as_ref().context("devices missing")?;
         let resources = self.resources.as_ref().context("resources missing")?;
-        let passes = self.backdrop_blur_passes_for_radius(radius);
         if passes == 0 {
             return Ok(resources.backdrop_srv.clone());
         }
@@ -631,7 +649,7 @@ impl DirectXRenderer {
             slice::from_ref(input_srv),
             slice::from_ref(viewport),
             slice::from_ref(&self.globals.global_params_buffer),
-            slice::from_ref(&self.globals.sampler),
+            slice::from_ref(&self.globals.blur_sampler),
             1,
         )
     }
@@ -1175,9 +1193,28 @@ impl DirectXGlobalElements {
             output
         };
 
+        let blur_sampler = unsafe {
+            let desc = D3D11_SAMPLER_DESC {
+                Filter: D3D11_FILTER_MIN_MAG_MIP_LINEAR,
+                AddressU: D3D11_TEXTURE_ADDRESS_CLAMP,
+                AddressV: D3D11_TEXTURE_ADDRESS_CLAMP,
+                AddressW: D3D11_TEXTURE_ADDRESS_CLAMP,
+                MipLODBias: 0.0,
+                MaxAnisotropy: 1,
+                ComparisonFunc: D3D11_COMPARISON_ALWAYS,
+                BorderColor: [0.0; 4],
+                MinLOD: 0.0,
+                MaxLOD: D3D11_FLOAT32_MAX,
+            };
+            let mut output = None;
+            device.CreateSamplerState(&desc, Some(&mut output))?;
+            output
+        };
+
         Ok(Self {
             global_params_buffer,
             sampler,
+            blur_sampler,
         })
     }
 }

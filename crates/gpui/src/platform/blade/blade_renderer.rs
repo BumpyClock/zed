@@ -815,12 +815,6 @@ impl BladeRenderer {
         }
     }
 
-    fn max_backdrop_blur_radius(blurs: &[BackdropBlur]) -> f32 {
-        blurs
-            .iter()
-            .fold(0.0, |current, blur| current.max(blur.blur_radius.0))
-    }
-
     fn backdrop_blur_passes_for_radius(&self, radius: f32) -> usize {
         if radius <= 0.0 {
             return 0;
@@ -833,8 +827,7 @@ impl BladeRenderer {
         passes.clamp(1, max_levels)
     }
 
-    fn run_backdrop_blur_passes(&mut self, radius: f32) -> Option<gpu::TextureView> {
-        let passes = self.backdrop_blur_passes_for_radius(radius);
+    fn run_backdrop_blur_passes_for_passes(&mut self, passes: usize) -> Option<gpu::TextureView> {
         if passes == 0 {
             return Some(self.backdrop_texture_view);
         }
@@ -1024,23 +1017,44 @@ impl BladeRenderer {
                             },
                         );
                     }
-                    let max_radius = Self::max_backdrop_blur_radius(blurs);
-                    let blur_view = self.run_backdrop_blur_passes(max_radius);
-                    pass = self.command_encoder.render(
-                        "main",
-                        gpu::RenderTargetSet {
-                            colors: &[gpu::RenderTarget {
-                                view: frame.texture_view(),
-                                init_op: gpu::InitOp::Load,
-                                finish_op: gpu::FinishOp::Store,
-                            }],
-                            depth_stencil: None,
-                        },
-                    );
-                    let instance_buf =
-                        unsafe { self.instance_belt.alloc_typed(blurs, &self.gpu) };
-                    let mut encoder = pass.with(&self.pipelines.backdrop_blur);
-                    if let Some(blur_view) = blur_view {
+                    let mut current_passes = None;
+                    let mut blur_view = None;
+                    let mut start = 0;
+                    while start < blurs.len() {
+                        let passes =
+                            self.backdrop_blur_passes_for_radius(blurs[start].blur_radius.0);
+                        let mut end = start + 1;
+                        while end < blurs.len()
+                            && self.backdrop_blur_passes_for_radius(blurs[end].blur_radius.0)
+                                == passes
+                        {
+                            end += 1;
+                        }
+                        if current_passes != Some(passes) {
+                            if current_passes.is_some() {
+                                drop(pass);
+                            }
+                            blur_view = self.run_backdrop_blur_passes_for_passes(passes);
+                            pass = self.command_encoder.render(
+                                "main",
+                                gpu::RenderTargetSet {
+                                    colors: &[gpu::RenderTarget {
+                                        view: frame.texture_view(),
+                                        init_op: gpu::InitOp::Load,
+                                        finish_op: gpu::FinishOp::Store,
+                                    }],
+                                    depth_stencil: None,
+                                },
+                            );
+                            current_passes = Some(passes);
+                        }
+                        let Some(blur_view) = blur_view else {
+                            start = end;
+                            continue;
+                        };
+                        let instance_buf =
+                            unsafe { self.instance_belt.alloc_typed(&blurs[start..end], &self.gpu) };
+                        let mut encoder = pass.with(&self.pipelines.backdrop_blur);
                         encoder.bind(
                             0,
                             &ShaderBackdropBlurData {
@@ -1050,10 +1064,9 @@ impl BladeRenderer {
                                 b_backdrop_blurs: instance_buf,
                             },
                         );
-                    } else {
-                        continue;
+                        encoder.draw(0, 4, 0, (end - start) as u32);
+                        start = end;
                     }
-                    encoder.draw(0, 4, 0, blurs.len() as u32);
                 }
                 PrimitiveBatch::Shadows(shadows) => {
                     let instance_buf =

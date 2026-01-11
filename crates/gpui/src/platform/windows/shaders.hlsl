@@ -581,9 +581,10 @@ float4 backdrop_blur_downsample_fragment(BackdropBlurPassVertexOutput input) : S
         rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
         alpha_sum += sample.a;
     }
-    float alpha = max(alpha_sum, 0.0001);
-    float3 rgb = linear_to_srgb(rgb_sum / alpha);
-    return float4(rgb, 1.0);
+    float alpha = alpha_sum * 0.25;
+    float safe_alpha = max(alpha_sum, 0.0001);
+    float3 rgb = linear_to_srgb(rgb_sum / safe_alpha) * alpha;
+    return float4(rgb, alpha);
 }
 
 float4 backdrop_blur_upsample_fragment(BackdropBlurPassVertexOutput input) : SV_Target {
@@ -612,9 +613,10 @@ float4 backdrop_blur_upsample_fragment(BackdropBlurPassVertexOutput input) : SV_
         rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
         alpha_sum += sample.a;
     }
-    float alpha = max(alpha_sum, 0.0001);
-    float3 rgb = linear_to_srgb(rgb_sum / alpha);
-    return float4(rgb, 1.0);
+    float alpha = alpha_sum * 0.25;
+    float safe_alpha = max(alpha_sum, 0.0001);
+    float3 rgb = linear_to_srgb(rgb_sum / safe_alpha) * alpha;
+    return float4(rgb, alpha);
 }
 
 BackdropBlurVertexOutput backdrop_blur_vertex(uint vertex_id: SV_VertexID, uint blur_id: SV_InstanceID) {

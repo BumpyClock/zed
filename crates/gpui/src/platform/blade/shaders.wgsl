@@ -593,9 +593,10 @@ fn fs_backdrop_blur_downsample(input: BackdropBlurPassVarying) -> @location(0) v
         rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
         alpha_sum += sample.a;
     }
-    let alpha = max(alpha_sum, 0.0001);
-    let rgb = linear_to_srgb(rgb_sum / alpha);
-    return vec4<f32>(rgb, 1.0);
+    let alpha = alpha_sum * 0.25;
+    let safe_alpha = max(alpha_sum, 0.0001);
+    let rgb = linear_to_srgb(rgb_sum / safe_alpha) * alpha;
+    return vec4<f32>(rgb, alpha);
 }
 
 @fragment
@@ -624,9 +625,10 @@ fn fs_backdrop_blur_upsample(input: BackdropBlurPassVarying) -> @location(0) vec
         rgb_sum += srgb_to_linear(sample.rgb / sample.a) * sample.a;
         alpha_sum += sample.a;
     }
-    let alpha = max(alpha_sum, 0.0001);
-    let rgb = linear_to_srgb(rgb_sum / alpha);
-    return vec4<f32>(rgb, 1.0);
+    let alpha = alpha_sum * 0.25;
+    let safe_alpha = max(alpha_sum, 0.0001);
+    let rgb = linear_to_srgb(rgb_sum / safe_alpha) * alpha;
+    return vec4<f32>(rgb, alpha);
 }
 
 @vertex

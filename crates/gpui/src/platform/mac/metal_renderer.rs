@@ -668,35 +668,77 @@ impl MetalRenderer {
                 ),
                 PrimitiveBatch::BackdropBlurs(blurs) => {
                     command_encoder.end_encoding();
-
-                    let did_copy =
-                        self.copy_drawable_to_backdrop(command_buffer, drawable, viewport_size);
-                    let max_radius = Self::max_backdrop_blur_radius(blurs);
-                    let blur_texture = if did_copy {
-                        self.render_backdrop_blur_texture(command_buffer, max_radius)
-                    } else {
-                        None
-                    };
-                    command_encoder = new_command_encoder(
-                        command_buffer,
-                        drawable,
-                        viewport_size,
-                        |color_attachment| {
-                            color_attachment.set_load_action(metal::MTLLoadAction::Load);
-                        },
-                    );
-
-                    if let Some(blur_texture) = blur_texture {
-                        self.draw_backdrop_blurs(
-                            blurs,
-                            instance_buffer,
-                            &mut instance_offset,
+                    if blurs.is_empty() {
+                        command_encoder = new_command_encoder(
+                            command_buffer,
+                            drawable,
                             viewport_size,
-                            command_encoder,
-                            blur_texture,
-                        )
-                    } else {
+                            |color_attachment| {
+                                color_attachment.set_load_action(metal::MTLLoadAction::Load);
+                            },
+                        );
                         true
+                    } else {
+                        let did_copy =
+                            self.copy_drawable_to_backdrop(command_buffer, drawable, viewport_size);
+                        let mut ok = true;
+                        let mut current_passes = None;
+                        let mut current_blur_texture = None;
+                        let mut has_active_encoder = false;
+                        let mut start = 0;
+                        while start < blurs.len() {
+                            let passes = self
+                                .backdrop_blur_passes_for_radius(blurs[start].blur_radius.0);
+                            let mut end = start + 1;
+                            while end < blurs.len()
+                                && self.backdrop_blur_passes_for_radius(
+                                    blurs[end].blur_radius.0,
+                                ) == passes
+                            {
+                                end += 1;
+                            }
+
+                            if current_passes != Some(passes) {
+                                if has_active_encoder {
+                                    command_encoder.end_encoding();
+                                }
+                                current_blur_texture = if did_copy {
+                                    self.render_backdrop_blur_texture_for_passes(
+                                        command_buffer,
+                                        passes,
+                                    )
+                                } else {
+                                    None
+                                };
+                                command_encoder = new_command_encoder(
+                                    command_buffer,
+                                    drawable,
+                                    viewport_size,
+                                    |color_attachment| {
+                                        color_attachment
+                                            .set_load_action(metal::MTLLoadAction::Load);
+                                    },
+                                );
+                                has_active_encoder = true;
+                                current_passes = Some(passes);
+                            }
+
+                            if let Some(blur_texture) = current_blur_texture {
+                                ok = self.draw_backdrop_blurs(
+                                    &blurs[start..end],
+                                    instance_buffer,
+                                    &mut instance_offset,
+                                    viewport_size,
+                                    command_encoder,
+                                    blur_texture,
+                                );
+                                if !ok {
+                                    break;
+                                }
+                            }
+                            start = end;
+                        }
+                        ok
                     }
                 }
                 PrimitiveBatch::Quads(quads) => self.draw_quads(
@@ -833,12 +875,6 @@ impl MetalRenderer {
         true
     }
 
-    fn max_backdrop_blur_radius(blurs: &[BackdropBlur]) -> f32 {
-        blurs
-            .iter()
-            .fold(0.0, |current, blur| current.max(blur.blur_radius.0))
-    }
-
     fn backdrop_blur_passes_for_radius(&self, radius: f32) -> usize {
         if radius <= 0.0 {
             return 0;
@@ -851,15 +887,14 @@ impl MetalRenderer {
         passes.clamp(1, max_levels)
     }
 
-    fn render_backdrop_blur_texture(
+    fn render_backdrop_blur_texture_for_passes(
         &self,
         command_buffer: &metal::CommandBufferRef,
-        radius: f32,
+        passes: usize,
     ) -> Option<&metal::Texture> {
         let Some(backdrop_texture) = &self.backdrop_texture else {
             return None;
         };
-        let passes = self.backdrop_blur_passes_for_radius(radius);
         if passes == 0 {
             return Some(backdrop_texture);
         }
