@@ -90,6 +90,16 @@ var<uniform> grayscale_enhanced_contrast: f32;
 var<uniform> subpixel_enhanced_contrast: f32;
 var t_sprite: texture_2d<f32>;
 var s_sprite: sampler;
+var t_backdrop: texture_2d<f32>;
+var s_backdrop: sampler;
+
+struct BackdropBlurParams {
+    input_size: vec2<f32>,
+    offset: f32,
+    pad: f32,
+}
+
+var<uniform> backdrop_blur_params: BackdropBlurParams;
 
 const M_PI_F: f32 = 3.1415926;
 const GRAYSCALE_FACTORS: vec3<f32> = vec3<f32>(0.2126, 0.7152, 0.0722);
@@ -508,6 +518,108 @@ struct Quad {
     border_widths: Edges,
 }
 var<storage, read> b_quads: array<Quad>;
+
+// --- backdrop blur --- //
+
+struct BackdropBlur {
+    order: u32,
+    blur_radius: f32,
+    opacity: f32,
+    pad: f32,
+    bounds: Bounds,
+    content_mask: Bounds,
+    corner_radii: Corners,
+}
+var<storage, read> b_backdrop_blurs: array<BackdropBlur>;
+
+struct BackdropBlurVarying {
+    @builtin(position) position: vec4<f32>,
+    @location(0) @interpolate(flat) blur_id: u32,
+    @location(1) clip_distances: vec4<f32>,
+}
+
+struct BackdropBlurPassVarying {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+}
+
+@vertex
+fn vs_backdrop_blur_downsample(
+    @builtin(vertex_index) vertex_id: u32,
+) -> BackdropBlurPassVarying {
+    let unit_vertex = vec2<f32>(f32(vertex_id & 1u), 0.5 * f32(vertex_id & 2u));
+    let device_position = unit_vertex * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0);
+    var out = BackdropBlurPassVarying();
+    out.position = vec4<f32>(device_position, 0.0, 1.0);
+    out.uv = unit_vertex;
+    return out;
+}
+
+@vertex
+fn vs_backdrop_blur_upsample(
+    @builtin(vertex_index) vertex_id: u32,
+) -> BackdropBlurPassVarying {
+    let unit_vertex = vec2<f32>(f32(vertex_id & 1u), 0.5 * f32(vertex_id & 2u));
+    let device_position = unit_vertex * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0);
+    var out = BackdropBlurPassVarying();
+    out.position = vec4<f32>(device_position, 0.0, 1.0);
+    out.uv = unit_vertex;
+    return out;
+}
+
+@fragment
+fn fs_backdrop_blur_downsample(input: BackdropBlurPassVarying) -> @location(0) vec4<f32> {
+    let texel = 1.0 / max(backdrop_blur_params.input_size, vec2<f32>(1.0));
+    let offset = texel * (backdrop_blur_params.offset + 0.5);
+    var color = vec4<f32>(0.0);
+    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, -offset.y));
+    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, -offset.y));
+    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, offset.y));
+    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, offset.y));
+    return color * 0.25;
+}
+
+@fragment
+fn fs_backdrop_blur_upsample(input: BackdropBlurPassVarying) -> @location(0) vec4<f32> {
+    let texel = 1.0 / max(backdrop_blur_params.input_size, vec2<f32>(1.0));
+    let offset = texel * (backdrop_blur_params.offset + 0.5);
+    var color = vec4<f32>(0.0);
+    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, -offset.y));
+    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, -offset.y));
+    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(-offset.x, offset.y));
+    color += textureSample(t_backdrop, s_backdrop, input.uv + vec2<f32>(offset.x, offset.y));
+    return color * 0.25;
+}
+
+@vertex
+fn vs_backdrop_blur(
+    @builtin(vertex_index) vertex_id: u32,
+    @builtin(instance_index) instance_id: u32,
+) -> BackdropBlurVarying {
+    let unit_vertex = vec2<f32>(f32(vertex_id & 1u), 0.5 * f32(vertex_id & 2u));
+    let blur = b_backdrop_blurs[instance_id];
+    var out = BackdropBlurVarying();
+    out.position = to_device_position(unit_vertex, blur.bounds);
+    out.blur_id = instance_id;
+    out.clip_distances = distance_from_clip_rect(unit_vertex, blur.bounds, blur.content_mask);
+    return out;
+}
+
+@fragment
+fn fs_backdrop_blur(input: BackdropBlurVarying) -> @location(0) vec4<f32> {
+    if (any(input.clip_distances < vec4<f32>(0.0))) {
+        return vec4<f32>(0.0);
+    }
+
+    let blur = b_backdrop_blurs[input.blur_id];
+    let viewport = globals.viewport_size;
+    let uv = input.position.xy / viewport;
+    let color = textureSample(t_backdrop, s_backdrop, uv);
+
+    let distance = quad_sdf(input.position.xy, blur.bounds, blur.corner_radii);
+    let alpha = clamp(0.5 - distance, 0.0, 1.0) * blur.opacity;
+    return color * alpha;
+}
 
 struct QuadVarying {
     @builtin(position) position: vec4<f32>,
