@@ -3094,11 +3094,12 @@ impl Window {
         let content_mask = self.content_mask();
         let opacity = self.element_opacity();
         let scaled_blur = blur_radius.scale(scale_factor);
+        let pad = scaled_blur * 2.0;
         self.next_frame.scene.insert_primitive(BackdropBlur {
             order: 0,
             blur_radius: scaled_blur,
             opacity,
-            pad: scaled_blur.0,
+            pad: pad.0,
             bounds: bounds.scale(scale_factor),
             content_mask: content_mask.scale(scale_factor),
             corner_radii: corner_radii.scale(scale_factor),
