@@ -481,14 +481,14 @@ impl DirectXRenderer {
         let resources = self.resources.as_ref().context("resources missing")?;
         let render_target = resources.render_target.as_ref().context("render target missing")?;
         unsafe {
-            devices.device_context.OMSetRenderTargets(0, None, None);
+            devices.device_context.OMSetRenderTargets(None, None);
             devices
                 .device_context
                 .CopyResource(&resources.backdrop_texture, render_target);
             if let Some(ref render_target_view) = resources.render_target_view {
                 devices
                     .device_context
-                    .OMSetRenderTargets(Some(slice::from_ref(render_target_view)), None);
+                    .OMSetRenderTargets(Some(&[Some(render_target_view.clone())]), None);
             }
         }
         Ok(())
@@ -614,7 +614,7 @@ impl DirectXRenderer {
             if let Some(ref render_target_view) = resources.render_target_view {
                 devices
                     .device_context
-                    .OMSetRenderTargets(Some(slice::from_ref(render_target_view)), None);
+                    .OMSetRenderTargets(Some(&[Some(render_target_view.clone())]), None);
             }
             devices
                 .device_context
@@ -638,9 +638,9 @@ impl DirectXRenderer {
         unsafe {
             if let Some(view) = output_view {
                 device_context.ClearRenderTargetView(view, &[0.0; 4]);
-                device_context.OMSetRenderTargets(Some(slice::from_ref(view)), None);
+                device_context.OMSetRenderTargets(Some(&[Some(view.clone())]), None);
             } else {
-                device_context.OMSetRenderTargets(0, None, None);
+                device_context.OMSetRenderTargets(None, None);
             }
             device_context.RSSetViewports(Some(slice::from_ref(viewport)));
         }
