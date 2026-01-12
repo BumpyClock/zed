@@ -181,9 +181,15 @@ vertex BackdropBlurVertexOutput backdrop_blur_vertex(
     constant Size_DevicePixels *viewport_size [[buffer(BackdropBlurInputIndex_ViewportSize)]]) {
   float2 unit_vertex = unit_vertices[unit_vertex_id];
   BackdropBlur blur = blurs[blur_id];
+  float pad = blur.pad;
+  Bounds padded_bounds = blur.bounds;
+  padded_bounds.origin -= float2(pad, pad);
+  padded_bounds.size += float2(pad * 2.0, pad * 2.0);
+  float2 padded_size = blur.bounds.size + float2(pad * 2.0, pad * 2.0);
+  float2 unit_vertex_original = (unit_vertex * padded_size - float2(pad, pad)) / blur.bounds.size;
   float4 device_position =
-      to_device_position(unit_vertex, blur.bounds, viewport_size);
-  float4 clip_distance = distance_from_clip_rect(unit_vertex, blur.bounds,
+      to_device_position(unit_vertex, padded_bounds, viewport_size);
+  float4 clip_distance = distance_from_clip_rect(unit_vertex_original, blur.bounds,
                                                  blur.content_mask.bounds);
   return BackdropBlurVertexOutput{
       blur_id,

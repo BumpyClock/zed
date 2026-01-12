@@ -638,10 +638,17 @@ fn vs_backdrop_blur(
 ) -> BackdropBlurVarying {
     let unit_vertex = vec2<f32>(f32(vertex_id & 1u), 0.5 * f32(vertex_id & 2u));
     let blur = b_backdrop_blurs[instance_id];
+    let pad = blur.pad;
+    let padded_bounds = Bounds(
+        blur.bounds.origin - vec2<f32>(pad, pad),
+        blur.bounds.size + vec2<f32>(pad * 2.0, pad * 2.0)
+    );
+    let padded_size = blur.bounds.size + vec2<f32>(pad * 2.0, pad * 2.0);
+    let unit_vertex_original = (unit_vertex * padded_size - vec2<f32>(pad, pad)) / blur.bounds.size;
     var out = BackdropBlurVarying();
-    out.position = to_device_position(unit_vertex, blur.bounds);
+    out.position = to_device_position(unit_vertex, padded_bounds);
     out.blur_id = instance_id;
-    out.clip_distances = distance_from_clip_rect(unit_vertex, blur.bounds, blur.content_mask);
+    out.clip_distances = distance_from_clip_rect(unit_vertex_original, blur.bounds, blur.content_mask);
     return out;
 }
 

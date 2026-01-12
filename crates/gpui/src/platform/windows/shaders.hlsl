@@ -622,8 +622,14 @@ float4 backdrop_blur_upsample_fragment(BackdropBlurPassVertexOutput input) : SV_
 BackdropBlurVertexOutput backdrop_blur_vertex(uint vertex_id: SV_VertexID, uint blur_id: SV_InstanceID) {
     float2 unit_vertex = float2(float(vertex_id & 1u), 0.5 * float(vertex_id & 2u));
     BackdropBlur blur = backdrop_blurs[blur_id];
-    float4 device_position = to_device_position(unit_vertex, blur.bounds);
-    float4 clip_distance = distance_from_clip_rect(unit_vertex, blur.bounds, blur.content_mask);
+    float pad = blur.pad;
+    Bounds padded_bounds = blur.bounds;
+    padded_bounds.origin -= float2(pad, pad);
+    padded_bounds.size += float2(pad * 2.0, pad * 2.0);
+    float2 padded_size = blur.bounds.size + float2(pad * 2.0, pad * 2.0);
+    float2 unit_vertex_original = (unit_vertex * padded_size - float2(pad, pad)) / blur.bounds.size;
+    float4 device_position = to_device_position(unit_vertex, padded_bounds);
+    float4 clip_distance = distance_from_clip_rect(unit_vertex_original, blur.bounds, blur.content_mask);
 
     BackdropBlurVertexOutput output;
     output.position = device_position;
