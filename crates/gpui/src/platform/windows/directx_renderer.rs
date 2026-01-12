@@ -568,10 +568,11 @@ impl DirectXRenderer {
                 offset: BACKDROP_BLUR_OFFSET,
                 pad: 0.0,
             };
-            self.draw_backdrop_blur_pass(
+            Self::draw_backdrop_blur_pass(
                 &devices.device,
                 &devices.device_context,
-                &self.pipelines.backdrop_blur_downsample_pipeline,
+                &mut self.pipelines.backdrop_blur_downsample_pipeline,
+                &self.globals,
                 &input_srv,
                 output_view,
                 &viewport,
@@ -598,10 +599,11 @@ impl DirectXRenderer {
                 offset: BACKDROP_BLUR_OFFSET,
                 pad: 0.0,
             };
-            self.draw_backdrop_blur_pass(
+            Self::draw_backdrop_blur_pass(
                 &devices.device,
                 &devices.device_context,
-                &self.pipelines.backdrop_blur_upsample_pipeline,
+                &mut self.pipelines.backdrop_blur_upsample_pipeline,
+                &self.globals,
                 &input_srv,
                 output_view,
                 &viewport,
@@ -625,10 +627,10 @@ impl DirectXRenderer {
     }
 
     fn draw_backdrop_blur_pass(
-        &mut self,
         device: &ID3D11Device,
         device_context: &ID3D11DeviceContext,
-        pipeline: &PipelineState<BackdropBlurParams>,
+        pipeline: &mut PipelineState<BackdropBlurParams>,
+        globals: &DirectXGlobalElements,
         input_srv: &Option<ID3D11ShaderResourceView>,
         output_view: Option<&ID3D11RenderTargetView>,
         viewport: &D3D11_VIEWPORT,
@@ -648,8 +650,8 @@ impl DirectXRenderer {
             device_context,
             slice::from_ref(input_srv),
             slice::from_ref(viewport),
-            slice::from_ref(&self.globals.global_params_buffer),
-            slice::from_ref(&self.globals.blur_sampler),
+            slice::from_ref(&globals.global_params_buffer),
+            slice::from_ref(&globals.blur_sampler),
             1,
         )
     }
