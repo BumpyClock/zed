@@ -23,6 +23,12 @@ const BACKDROP_BLUR_RADIUS_PER_LEVEL: f32 = 6.0;
 const MAX_BACKDROP_BLUR_LEVELS: usize = 4;
 const BACKDROP_BLUR_OFFSET: f32 = 1.0;
 
+#[derive(Clone, Copy)]
+enum BackdropBlurDirection {
+    Downsample,
+    Upsample,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct GlobalParams {
@@ -847,7 +853,7 @@ impl BladeRenderer {
                 output_texture,
                 output_view,
                 input_size,
-                &self.pipelines.backdrop_blur_downsample,
+                BackdropBlurDirection::Downsample,
             );
             input_view = output_view;
         }
@@ -862,7 +868,7 @@ impl BladeRenderer {
                 output_texture,
                 output_view,
                 input_size,
-                &self.pipelines.backdrop_blur_upsample,
+                BackdropBlurDirection::Upsample,
             );
             input_view = output_view;
         }
@@ -876,7 +882,7 @@ impl BladeRenderer {
         output_texture: gpu::Texture,
         output_view: gpu::TextureView,
         input_size: gpu::Extent,
-        pipeline: &gpu::RenderPipeline,
+        direction: BackdropBlurDirection,
     ) {
         self.command_encoder.init_texture(output_texture);
         let mut pass = self.command_encoder.render(
@@ -890,6 +896,10 @@ impl BladeRenderer {
                 depth_stencil: None,
             },
         );
+        let pipeline = match direction {
+            BackdropBlurDirection::Downsample => &self.pipelines.backdrop_blur_downsample,
+            BackdropBlurDirection::Upsample => &self.pipelines.backdrop_blur_upsample,
+        };
         let mut encoder = pass.with(pipeline);
         encoder.bind(
             0,
@@ -994,6 +1004,13 @@ impl BladeRenderer {
                         continue;
                     }
                     drop(pass);
+
+                    // Pre-compute pass counts for all blurs to avoid borrowing self in the loop
+                    let pass_counts: Vec<usize> = blurs
+                        .iter()
+                        .map(|blur| self.backdrop_blur_passes_for_radius(blur.blur_radius.0))
+                        .collect();
+
                     self.command_encoder.init_texture(self.backdrop_texture);
                     {
                         let mut transfers = self.command_encoder.transfer("backdrop");
@@ -1017,35 +1034,18 @@ impl BladeRenderer {
                             },
                         );
                     }
+
                     let mut current_passes = None;
                     let mut blur_view = None;
                     let mut start = 0;
                     while start < blurs.len() {
-                        let passes =
-                            self.backdrop_blur_passes_for_radius(blurs[start].blur_radius.0);
+                        let passes = pass_counts[start];
                         let mut end = start + 1;
-                        while end < blurs.len()
-                            && self.backdrop_blur_passes_for_radius(blurs[end].blur_radius.0)
-                                == passes
-                        {
+                        while end < blurs.len() && pass_counts[end] == passes {
                             end += 1;
                         }
                         if current_passes != Some(passes) {
-                            if current_passes.is_some() {
-                                drop(pass);
-                            }
                             blur_view = self.run_backdrop_blur_passes_for_passes(passes);
-                            pass = self.command_encoder.render(
-                                "main",
-                                gpu::RenderTargetSet {
-                                    colors: &[gpu::RenderTarget {
-                                        view: frame.texture_view(),
-                                        init_op: gpu::InitOp::Load,
-                                        finish_op: gpu::FinishOp::Store,
-                                    }],
-                                    depth_stencil: None,
-                                },
-                            );
                             current_passes = Some(passes);
                         }
                         let Some(blur_view) = blur_view else {
@@ -1054,7 +1054,18 @@ impl BladeRenderer {
                         };
                         let instance_buf =
                             unsafe { self.instance_belt.alloc_typed(&blurs[start..end], &self.gpu) };
-                        let mut encoder = pass.with(&self.pipelines.backdrop_blur);
+                        let mut inner_pass = self.command_encoder.render(
+                            "backdrop blur composite",
+                            gpu::RenderTargetSet {
+                                colors: &[gpu::RenderTarget {
+                                    view: frame.texture_view(),
+                                    init_op: gpu::InitOp::Load,
+                                    finish_op: gpu::FinishOp::Store,
+                                }],
+                                depth_stencil: None,
+                            },
+                        );
+                        let mut encoder = inner_pass.with(&self.pipelines.backdrop_blur);
                         encoder.bind(
                             0,
                             &ShaderBackdropBlurData {
@@ -1067,6 +1078,19 @@ impl BladeRenderer {
                         encoder.draw(0, 4, 0, (end - start) as u32);
                         start = end;
                     }
+
+                    // Re-create main pass for subsequent batches
+                    pass = self.command_encoder.render(
+                        "main",
+                        gpu::RenderTargetSet {
+                            colors: &[gpu::RenderTarget {
+                                view: frame.texture_view(),
+                                init_op: gpu::InitOp::Load,
+                                finish_op: gpu::FinishOp::Store,
+                            }],
+                            depth_stencil: None,
+                        },
+                    );
                 }
                 PrimitiveBatch::Shadows(shadows) => {
                     let instance_buf =
