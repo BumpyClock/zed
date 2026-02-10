@@ -3,7 +3,7 @@ use crate::{
     DefiniteLength, Display, Fill, FlexDirection, FlexWrap, Font, FontFeatures, FontStyle,
     FontWeight, GridPlacement, Hsla, JustifyContent, Length, Pixels, SharedString,
     StrikethroughStyle, StyleRefinement, TextAlign, TextOverflow, TextStyleRefinement,
-    UnderlineStyle, WhiteSpace, px, relative, rems,
+    UnderlineStyle, WhiteSpace, point, px, relative, rems,
 };
 pub use gpui_macros::{
     border_style_methods, box_shadow_style_methods, cursor_style_methods, margin_style_methods,
@@ -156,6 +156,26 @@ pub trait Styled: Sized {
     /// [Docs](https://tailwindcss.com/docs/flex-direction#row-reverse)
     fn flex_row_reverse(mut self) -> Self {
         self.style().flex_direction = Some(FlexDirection::RowReverse);
+        self
+    }
+
+    /// Apply a paint-space translation without affecting layout.
+    fn translate(mut self, x: Pixels, y: Pixels) -> Self {
+        self.style().translate = Some(point(x, y));
+        self
+    }
+
+    /// Apply a paint-space translation along x axis without affecting layout.
+    fn translate_x(mut self, x: Pixels) -> Self {
+        let current = self.style().translate.unwrap_or_default();
+        self.style().translate = Some(point(x, current.y));
+        self
+    }
+
+    /// Apply a paint-space translation along y axis without affecting layout.
+    fn translate_y(mut self, y: Pixels) -> Self {
+        let current = self.style().translate.unwrap_or_default();
+        self.style().translate = Some(point(current.x, y));
         self
     }
 

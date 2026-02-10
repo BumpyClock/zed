@@ -185,6 +185,9 @@ pub struct Style {
     /// How should the position of this element be tweaked relative to the layout defined?
     #[refineable]
     pub inset: Edges<Length>,
+    /// Paint-space translation applied after layout.
+    /// Does not affect layout size/positioning.
+    pub translate: Point<Pixels>,
 
     // Size properties
     /// Sets the initial size of the item
@@ -758,6 +761,7 @@ impl Default for Style {
             scrollbar_width: AbsoluteLength::default(),
             position: Position::Relative,
             inset: Edges::auto(),
+            translate: Point::default(),
             margin: Edges::<Length>::zero(),
             padding: Edges::<DefiniteLength>::zero(),
             border_widths: Edges::<AbsoluteLength>::zero(),
