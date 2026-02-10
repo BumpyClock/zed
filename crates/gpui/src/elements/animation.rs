@@ -20,6 +20,18 @@ pub struct Animation {
     /// A function that takes a delta between 0 and 1 and returns a new delta
     /// between 0 and 1 based on the given easing function.
     pub easing: Rc<dyn Fn(f32) -> f32>,
+    /// Bounds for the easing output. Defaults to [0, 1].
+    pub easing_bounds: EasingBounds,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum EasingBounds {
+    /// Output must stay within [0, 1].
+    Bounded,
+    /// Output may be any finite value (spring/overshoot).
+    Unbounded,
+    /// Output must stay within the provided range.
+    Range { min: f32, max: f32 },
 }
 
 impl Animation {
@@ -30,6 +42,7 @@ impl Animation {
             duration,
             oneshot: true,
             easing: Rc::new(linear),
+            easing_bounds: EasingBounds::Bounded,
         }
     }
 
@@ -41,9 +54,24 @@ impl Animation {
 
     /// Set the easing function to use for this animation.
     /// The easing function will take a time delta between 0 and 1 and return a new delta
-    /// between 0 and 1
+    /// between 0 and 1.
     pub fn with_easing(mut self, easing: impl Fn(f32) -> f32 + 'static) -> Self {
         self.easing = Rc::new(easing);
+        self.easing_bounds = EasingBounds::Bounded;
+        self
+    }
+
+    /// Set an easing function that may return values outside [0, 1].
+    /// Use only for transform-like properties (scale/translate/rotate).
+    pub fn with_unbounded_easing(mut self, easing: impl Fn(f32) -> f32 + 'static) -> Self {
+        self.easing = Rc::new(easing);
+        self.easing_bounds = EasingBounds::Unbounded;
+        self
+    }
+
+    /// Override easing output bounds.
+    pub fn with_easing_bounds(mut self, min: f32, max: f32) -> Self {
+        self.easing_bounds = EasingBounds::Range { min, max };
         self
     }
 }
@@ -163,11 +191,25 @@ impl<E: IntoElement + 'static> Element for AnimationElement<E> {
                 }
             }
             let delta = (self.animations[animation_ix].easing)(delta);
-
-            debug_assert!(
-                (0.0..=1.0).contains(&delta),
-                "delta should always be between 0 and 1"
-            );
+            match self.animations[animation_ix].easing_bounds {
+                EasingBounds::Bounded => {
+                    debug_assert!(
+                        (0.0..=1.0).contains(&delta),
+                        "delta should always be between 0 and 1"
+                    );
+                }
+                EasingBounds::Unbounded => {
+                    debug_assert!(delta.is_finite(), "delta must be finite");
+                }
+                EasingBounds::Range { min, max } => {
+                    debug_assert!(
+                        (min..=max).contains(&delta),
+                        "delta should always be between {} and {}",
+                        min,
+                        max
+                    );
+                }
+            }
 
             let element = self.element.take().expect("should only be called once");
             let mut element = (self.animator)(element, animation_ix, delta).into_any_element();
@@ -241,6 +283,44 @@ mod easing {
                 easing(delta * 2.0)
             } else {
                 easing((1.0 - delta) * 2.0)
+            }
+        }
+    }
+
+    /// Damped spring easing that may overshoot.
+    /// Use with `Animation::with_unbounded_easing` for transform-like properties.
+    pub fn spring(damping_ratio: f32, frequency: f32) -> impl Fn(f32) -> f32 {
+        let damping_ratio = damping_ratio.clamp(0.0, 1.0);
+        let frequency = frequency.max(0.01);
+        move |delta| {
+            let t = delta.clamp(0.0, 1.0);
+            let omega0 = frequency * 2.0 * PI;
+
+            if damping_ratio < 1.0 {
+                let omega_d = omega0 * (1.0 - damping_ratio * damping_ratio).sqrt();
+                let exp = (-damping_ratio * omega0 * t).exp();
+                let cos = (omega_d * t).cos();
+                let sin = (omega_d * t).sin();
+                let k = damping_ratio / (1.0 - damping_ratio * damping_ratio).sqrt();
+                let y = 1.0 - exp * (cos + k * sin);
+
+                let exp1 = (-damping_ratio * omega0).exp();
+                let cos1 = omega_d.cos();
+                let sin1 = omega_d.sin();
+                let y1 = 1.0 - exp1 * (cos1 + k * sin1);
+                if y1.abs() < 1e-4 {
+                    return 1.0;
+                }
+                y / y1
+            } else {
+                // Critically damped approximation.
+                let exp = (-omega0 * t).exp();
+                let y = 1.0 - exp * (1.0 + omega0 * t);
+                let y1 = 1.0 - (-omega0).exp() * (1.0 + omega0);
+                if y1.abs() < 1e-4 {
+                    return 1.0;
+                }
+                y / y1
             }
         }
     }

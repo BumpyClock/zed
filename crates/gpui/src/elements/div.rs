@@ -1485,7 +1485,7 @@ impl Element for Div {
                 }
 
                 window.with_image_cache(image_cache, |window| {
-                    window.with_element_offset(scroll_offset, |window| {
+                    window.with_element_offset(style.translate + scroll_offset, |window| {
                         for child in &mut self.children {
                             child.prepaint(window, cx);
                         }
@@ -1752,12 +1752,13 @@ impl Interactivity {
                     }
                 }
 
+                let translated_bounds = bounds + style.translate;
                 window.with_text_style(style.text_style().cloned(), |window| {
                     window.with_content_mask(
-                        style.overflow_mask(bounds, window.rem_size()),
+                        style.overflow_mask(translated_bounds, window.rem_size()),
                         |window| {
                             let hitbox = if self.should_insert_hitbox(&style, window, cx) {
-                                Some(window.insert_hitbox(bounds, self.hitbox_behavior))
+                                Some(window.insert_hitbox(translated_bounds, self.hitbox_behavior))
                             } else {
                                 None
                             };
@@ -1902,11 +1903,12 @@ impl Interactivity {
                     window.next_frame.tab_stops.insert(focus_handle);
                 }
 
+                let translated_bounds = bounds + style.translate;
                 window.with_element_opacity(style.opacity, |window| {
-                    style.paint(bounds, window, cx, |window: &mut Window, cx: &mut App| {
+                    style.paint(translated_bounds, window, cx, |window: &mut Window, cx: &mut App| {
                         window.with_text_style(style.text_style().cloned(), |window| {
                             window.with_content_mask(
-                                style.overflow_mask(bounds, window.rem_size()),
+                                style.overflow_mask(translated_bounds, window.rem_size()),
                                 |window| {
                                     window.with_tab_group(tab_group, |window| {
                                         if let Some(hitbox) = hitbox {
