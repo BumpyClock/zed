@@ -5744,4 +5744,92 @@ mod tests {
         assert!(hitbox.contains_window_point(point(px(20.0), px(30.0))));
         assert!(!hitbox.contains_window_point(point(px(0.0), px(0.0))));
     }
+
+    #[test]
+    fn transformed_hitbox_window_to_local_round_trips_scale_translate() {
+        let local_bounds = Bounds::new(point(px(10.0), px(20.0)), size(px(40.0), px(30.0)));
+        let transform = TransformationMatrix::unit()
+            .translate(point(ScaledPixels(12.0), ScaledPixels(-7.0)))
+            .scale(size(1.5, 0.75));
+        let bounds = transformed_bounds(local_bounds, transform);
+        let hitbox = Hitbox {
+            id: HitboxId(2),
+            bounds,
+            local_bounds,
+            transform,
+            inverse_transform: transform.try_inverse(),
+            content_mask: ContentMask {
+                bounds: Bounds::new(point(px(-1000.0), px(-1000.0)), size(px(5000.0), px(5000.0))),
+            },
+            behavior: HitboxBehavior::Normal,
+        };
+
+        let local_point = point(px(28.0), px(33.0));
+        let window_point = transform.apply(local_point);
+        let recovered = hitbox.window_to_local(window_point).expect("invertible transform");
+
+        assert!((recovered.x.0 - local_point.x.0).abs() < 1e-3);
+        assert!((recovered.y.0 - local_point.y.0).abs() < 1e-3);
+        assert!(hitbox.contains_window_point(window_point));
+    }
+
+    #[test]
+    fn transformed_hitbox_handles_composed_parent_child_transform() {
+        let local_bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(100.0), px(60.0)));
+        let parent = TransformationMatrix::unit()
+            .translate(point(ScaledPixels(24.0), ScaledPixels(16.0)))
+            .scale(size(1.1, 1.0));
+        let child = TransformationMatrix::unit()
+            .translate(point(ScaledPixels(9.0), ScaledPixels(3.0)))
+            .scale(size(0.8, 1.25));
+        let transform = parent.compose(child);
+        let bounds = transformed_bounds(local_bounds, transform);
+        let hitbox = Hitbox {
+            id: HitboxId(3),
+            bounds,
+            local_bounds,
+            transform,
+            inverse_transform: transform.try_inverse(),
+            content_mask: ContentMask {
+                bounds: Bounds::new(point(px(-1000.0), px(-1000.0)), size(px(5000.0), px(5000.0))),
+            },
+            behavior: HitboxBehavior::Normal,
+        };
+
+        let local_inside = point(px(25.0), px(20.0));
+        let window_inside = transform.apply(local_inside);
+        assert!(hitbox.contains_window_point(window_inside));
+
+        let recovered = hitbox.window_to_local(window_inside).expect("invertible transform");
+        assert!((recovered.x.0 - local_inside.x.0).abs() < 1e-3);
+        assert!((recovered.y.0 - local_inside.y.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn transformed_hitbox_respects_transformed_content_mask() {
+        let local_bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(100.0), px(100.0)));
+        let local_mask_bounds = Bounds::new(point(px(0.0), px(0.0)), size(px(30.0), px(30.0)));
+        let transform = TransformationMatrix::unit()
+            .translate(point(ScaledPixels(40.0), ScaledPixels(20.0)))
+            .scale(size(1.2, 1.2));
+        let bounds = transformed_bounds(local_bounds, transform);
+        let transformed_mask = transformed_bounds(local_mask_bounds, transform);
+        let hitbox = Hitbox {
+            id: HitboxId(4),
+            bounds,
+            local_bounds,
+            transform,
+            inverse_transform: transform.try_inverse(),
+            content_mask: ContentMask {
+                bounds: transformed_mask,
+            },
+            behavior: HitboxBehavior::Normal,
+        };
+
+        let point_inside_local_bounds_outside_mask = transform.apply(point(px(80.0), px(80.0)));
+        let point_inside_mask = transform.apply(point(px(10.0), px(10.0)));
+
+        assert!(!hitbox.contains_window_point(point_inside_local_bounds_outside_mask));
+        assert!(hitbox.contains_window_point(point_inside_mask));
+    }
 }
