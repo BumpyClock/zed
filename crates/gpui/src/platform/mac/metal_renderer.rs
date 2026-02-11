@@ -2,7 +2,7 @@ use super::metal_atlas::MetalAtlas;
 use crate::{
     AtlasTextureId, BackdropBlur, Background, Bounds, ContentMask, DevicePixels, MonochromeSprite,
     PaintSurface, Path, Point, PolychromeSprite, PrimitiveBatch, Quad, ScaledPixels, Scene, Shadow,
-    Size, Surface, Underline, point, size,
+    Size, Surface, TransformationMatrix, Underline, point, size,
 };
 use anyhow::Result;
 use block::ConcreteBlock;
@@ -419,9 +419,8 @@ impl MetalRenderer {
         texture_descriptor.set_width(size.width.0 as u64);
         texture_descriptor.set_height(size.height.0 as u64);
         texture_descriptor.set_pixel_format(metal::MTLPixelFormat::BGRA8Unorm);
-        texture_descriptor.set_usage(
-            metal::MTLTextureUsage::ShaderRead | metal::MTLTextureUsage::RenderTarget,
-        );
+        texture_descriptor
+            .set_usage(metal::MTLTextureUsage::ShaderRead | metal::MTLTextureUsage::RenderTarget);
         self.backdrop_texture = Some(self.device.new_texture(&texture_descriptor));
     }
 
@@ -451,9 +450,8 @@ impl MetalRenderer {
 
         let mut texture_descriptor = metal::TextureDescriptor::new();
         texture_descriptor.set_pixel_format(metal::MTLPixelFormat::BGRA8Unorm);
-        texture_descriptor.set_usage(
-            metal::MTLTextureUsage::ShaderRead | metal::MTLTextureUsage::RenderTarget,
-        );
+        texture_descriptor
+            .set_usage(metal::MTLTextureUsage::ShaderRead | metal::MTLTextureUsage::RenderTarget);
 
         for level_size in self.backdrop_blur_level_sizes.iter().skip(1) {
             texture_descriptor.set_width(level_size.width.0 as u64);
@@ -687,13 +685,12 @@ impl MetalRenderer {
                         let mut has_active_encoder = false;
                         let mut start = 0;
                         while start < blurs.len() {
-                            let passes = self
-                                .backdrop_blur_passes_for_radius(blurs[start].blur_radius.0);
+                            let passes =
+                                self.backdrop_blur_passes_for_radius(blurs[start].blur_radius.0);
                             let mut end = start + 1;
                             while end < blurs.len()
-                                && self.backdrop_blur_passes_for_radius(
-                                    blurs[end].blur_radius.0,
-                                ) == passes
+                                && self.backdrop_blur_passes_for_radius(blurs[end].blur_radius.0)
+                                    == passes
                             {
                                 end += 1;
                             }
@@ -1659,6 +1656,7 @@ impl MetalRenderer {
                     SurfaceBounds {
                         bounds: surface.bounds,
                         content_mask: surface.content_mask.clone(),
+                        transformation: surface.transformation,
                     },
                 );
             }
@@ -1881,4 +1879,5 @@ pub struct PathSprite {
 pub struct SurfaceBounds {
     pub bounds: Bounds<ScaledPixels>,
     pub content_mask: ContentMask<ScaledPixels>,
+    pub transformation: TransformationMatrix,
 }

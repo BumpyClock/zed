@@ -54,6 +54,22 @@ struct PodBounds {
     size: [f32; 2],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct PodTransformationMatrix {
+    rotation_scale: [[f32; 2]; 2],
+    translation: [f32; 2],
+}
+
+impl From<crate::TransformationMatrix> for PodTransformationMatrix {
+    fn from(transform: crate::TransformationMatrix) -> Self {
+        Self {
+            rotation_scale: transform.rotation_scale,
+            translation: transform.translation,
+        }
+    }
+}
+
 impl From<Bounds<ScaledPixels>> for PodBounds {
     fn from(bounds: Bounds<ScaledPixels>) -> Self {
         Self {
@@ -68,6 +84,7 @@ impl From<Bounds<ScaledPixels>> for PodBounds {
 struct SurfaceParams {
     bounds: PodBounds,
     content_mask: PodBounds,
+    transformation: PodTransformationMatrix,
 }
 
 #[derive(blade_macros::ShaderData)]
@@ -934,8 +951,7 @@ impl BladeRenderer {
             self.gpu.destroy_texture_view(msaa_view);
         }
         self.gpu.destroy_texture(self.backdrop_texture);
-        self.gpu
-            .destroy_texture_view(self.backdrop_texture_view);
+        self.gpu.destroy_texture_view(self.backdrop_texture_view);
         for texture in self.backdrop_blur_downsample_textures.drain(..) {
             self.gpu.destroy_texture(texture);
         }
@@ -1052,8 +1068,10 @@ impl BladeRenderer {
                             start = end;
                             continue;
                         };
-                        let instance_buf =
-                            unsafe { self.instance_belt.alloc_typed(&blurs[start..end], &self.gpu) };
+                        let instance_buf = unsafe {
+                            self.instance_belt
+                                .alloc_typed(&blurs[start..end], &self.gpu)
+                        };
                         let mut inner_pass = self.command_encoder.render(
                             "backdrop blur composite",
                             gpu::RenderTargetSet {
@@ -1317,6 +1335,7 @@ impl BladeRenderer {
                                     surface_locals: SurfaceParams {
                                         bounds: surface.bounds.into(),
                                         content_mask: surface.content_mask.bounds.into(),
+                                        transformation: surface.transformation.into(),
                                     },
                                     t_y,
                                     t_cb_cr,

@@ -690,39 +690,6 @@ fn transformed_bounds(bounds: Bounds<Pixels>, transform: TransformationMatrix) -
     )
 }
 
-fn transformed_scaled_bounds(
-    bounds: Bounds<ScaledPixels>,
-    transform: TransformationMatrix,
-) -> Bounds<ScaledPixels> {
-    if transform.is_unit() {
-        return bounds;
-    }
-
-    let corners = [
-        bounds.origin,
-        bounds.top_right(),
-        bounds.bottom_left(),
-        bounds.bottom_right(),
-    ];
-    let mut min_x = f32::INFINITY;
-    let mut min_y = f32::INFINITY;
-    let mut max_x = f32::NEG_INFINITY;
-    let mut max_y = f32::NEG_INFINITY;
-
-    for corner in corners {
-        let point = transform.apply_scaled(corner);
-        min_x = min_x.min(point.x.0);
-        min_y = min_y.min(point.y.0);
-        max_x = max_x.max(point.x.0);
-        max_y = max_y.max(point.y.0);
-    }
-
-    Bounds::new(
-        Point::new(ScaledPixels(min_x), ScaledPixels(min_y)),
-        Size::new(ScaledPixels(max_x - min_x), ScaledPixels(max_y - min_y)),
-    )
-}
-
 /// How the hitbox affects mouse behavior.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum HitboxBehavior {
@@ -3268,18 +3235,19 @@ impl Window {
         self.invalidator.debug_assert_paint();
 
         let scale_factor = self.scale_factor();
+        let render_transform = self.element_render_transform(scale_factor);
         let content_mask = self.transformed_content_mask(self.content_mask());
-        let transformed_bounds = self.transformed_element_bounds(quad.bounds);
         let opacity = self.element_opacity();
         self.next_frame.scene.insert_primitive(Quad {
             order: 0,
-            bounds: transformed_bounds.scale(scale_factor),
+            bounds: quad.bounds.scale(scale_factor),
             content_mask: content_mask.scale(scale_factor),
             background: quad.background.opacity(opacity),
             border_color: quad.border_color.opacity(opacity),
             corner_radii: quad.corner_radii.scale(scale_factor),
             border_widths: quad.border_widths.scale(scale_factor),
             border_style: quad.border_style,
+            transformation: render_transform,
         });
     }
 
@@ -3519,7 +3487,6 @@ impl Window {
                 origin: glyph_origin.map(|px| px.floor()) + raster_bounds.origin.map(Into::into),
                 size: tile.bounds.size.map(Into::into),
             };
-            let bounds = transformed_scaled_bounds(bounds, render_transform);
             let content_mask = self
                 .transformed_content_mask(self.content_mask())
                 .scale(scale_factor);
@@ -3534,6 +3501,7 @@ impl Window {
                 content_mask,
                 tile,
                 opacity,
+                transformation: render_transform,
             });
         }
         Ok(())
@@ -3625,7 +3593,10 @@ impl Window {
 
         let scale_factor = self.scale_factor();
         let render_transform = self.element_render_transform(scale_factor);
-        let bounds = transformed_scaled_bounds(bounds.scale(scale_factor), render_transform);
+        let bounds = bounds
+            .scale(scale_factor)
+            .map_origin(|origin| origin.floor())
+            .map_size(|size| size.ceil());
         let params = RenderImageParams {
             image_id: data.id,
             frame_index,
@@ -3653,13 +3624,12 @@ impl Window {
             order: 0,
             pad: 0,
             grayscale,
-            bounds: bounds
-                .map_origin(|origin| origin.floor())
-                .map_size(|size| size.ceil()),
+            bounds,
             content_mask,
             corner_radii,
             tile,
             opacity,
+            transformation: render_transform,
         });
         Ok(())
     }
@@ -3675,7 +3645,7 @@ impl Window {
 
         let scale_factor = self.scale_factor();
         let render_transform = self.element_render_transform(scale_factor);
-        let bounds = transformed_scaled_bounds(bounds.scale(scale_factor), render_transform);
+        let bounds = bounds.scale(scale_factor);
         let content_mask = self
             .transformed_content_mask(self.content_mask())
             .scale(scale_factor);
@@ -3683,6 +3653,7 @@ impl Window {
             order: 0,
             bounds,
             content_mask,
+            transformation: render_transform,
             image_buffer,
         });
     }
@@ -5759,14 +5730,19 @@ mod tests {
             transform,
             inverse_transform: transform.try_inverse(),
             content_mask: ContentMask {
-                bounds: Bounds::new(point(px(-1000.0), px(-1000.0)), size(px(5000.0), px(5000.0))),
+                bounds: Bounds::new(
+                    point(px(-1000.0), px(-1000.0)),
+                    size(px(5000.0), px(5000.0)),
+                ),
             },
             behavior: HitboxBehavior::Normal,
         };
 
         let local_point = point(px(28.0), px(33.0));
         let window_point = transform.apply(local_point);
-        let recovered = hitbox.window_to_local(window_point).expect("invertible transform");
+        let recovered = hitbox
+            .window_to_local(window_point)
+            .expect("invertible transform");
 
         assert!((recovered.x.0 - local_point.x.0).abs() < 1e-3);
         assert!((recovered.y.0 - local_point.y.0).abs() < 1e-3);
@@ -5791,7 +5767,10 @@ mod tests {
             transform,
             inverse_transform: transform.try_inverse(),
             content_mask: ContentMask {
-                bounds: Bounds::new(point(px(-1000.0), px(-1000.0)), size(px(5000.0), px(5000.0))),
+                bounds: Bounds::new(
+                    point(px(-1000.0), px(-1000.0)),
+                    size(px(5000.0), px(5000.0)),
+                ),
             },
             behavior: HitboxBehavior::Normal,
         };
@@ -5800,7 +5779,9 @@ mod tests {
         let window_inside = transform.apply(local_inside);
         assert!(hitbox.contains_window_point(window_inside));
 
-        let recovered = hitbox.window_to_local(window_inside).expect("invertible transform");
+        let recovered = hitbox
+            .window_to_local(window_inside)
+            .expect("invertible transform");
         assert!((recovered.x.0 - local_inside.x.0).abs() < 1e-3);
         assert!((recovered.y.0 - local_inside.y.0).abs() < 1e-3);
     }

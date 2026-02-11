@@ -232,17 +232,21 @@ pub(crate) enum Primitive {
 }
 
 impl Primitive {
-    pub fn bounds(&self) -> &Bounds<ScaledPixels> {
+    pub fn bounds(&self) -> Bounds<ScaledPixels> {
         match self {
-            Primitive::Shadow(shadow) => &shadow.bounds,
-            Primitive::BackdropBlur(blur) => &blur.bounds,
-            Primitive::Quad(quad) => &quad.bounds,
-            Primitive::Path(path) => &path.bounds,
-            Primitive::Underline(underline) => &underline.bounds,
-            Primitive::MonochromeSprite(sprite) => &sprite.bounds,
-            Primitive::SubpixelSprite(sprite) => &sprite.bounds,
-            Primitive::PolychromeSprite(sprite) => &sprite.bounds,
-            Primitive::Surface(surface) => &surface.bounds,
+            Primitive::Shadow(shadow) => shadow.bounds,
+            Primitive::BackdropBlur(blur) => blur.bounds,
+            Primitive::Quad(quad) => transformed_scaled_bounds(quad.bounds, quad.transformation),
+            Primitive::Path(path) => path.bounds,
+            Primitive::Underline(underline) => underline.bounds,
+            Primitive::MonochromeSprite(sprite) => sprite.bounds,
+            Primitive::SubpixelSprite(sprite) => sprite.bounds,
+            Primitive::PolychromeSprite(sprite) => {
+                transformed_scaled_bounds(sprite.bounds, sprite.transformation)
+            }
+            Primitive::Surface(surface) => {
+                transformed_scaled_bounds(surface.bounds, surface.transformation)
+            }
         }
     }
 
@@ -259,6 +263,39 @@ impl Primitive {
             Primitive::Surface(surface) => &surface.content_mask,
         }
     }
+}
+
+fn transformed_scaled_bounds(
+    bounds: Bounds<ScaledPixels>,
+    transform: TransformationMatrix,
+) -> Bounds<ScaledPixels> {
+    if transform.is_unit() {
+        return bounds;
+    }
+
+    let corners = [
+        bounds.origin,
+        bounds.top_right(),
+        bounds.bottom_left(),
+        bounds.bottom_right(),
+    ];
+    let mut min_x = f32::INFINITY;
+    let mut min_y = f32::INFINITY;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+
+    for corner in corners {
+        let point = transform.apply_scaled(corner);
+        min_x = min_x.min(point.x.0);
+        min_y = min_y.min(point.y.0);
+        max_x = max_x.max(point.x.0);
+        max_y = max_y.max(point.y.0);
+    }
+
+    Bounds::new(
+        Point::new(ScaledPixels(min_x), ScaledPixels(min_y)),
+        Size::new(ScaledPixels(max_x - min_x), ScaledPixels(max_y - min_y)),
+    )
 }
 
 #[cfg_attr(
@@ -545,6 +582,7 @@ pub(crate) struct Quad {
     pub border_color: Hsla,
     pub corner_radii: Corners<ScaledPixels>,
     pub border_widths: Edges<ScaledPixels>,
+    pub transformation: TransformationMatrix,
 }
 
 impl From<Quad> for Primitive {
@@ -821,6 +859,7 @@ pub(crate) struct PolychromeSprite {
     pub content_mask: ContentMask<ScaledPixels>,
     pub corner_radii: Corners<ScaledPixels>,
     pub tile: AtlasTile,
+    pub transformation: TransformationMatrix,
 }
 
 impl From<PolychromeSprite> for Primitive {
@@ -834,6 +873,7 @@ pub(crate) struct PaintSurface {
     pub order: DrawOrder,
     pub bounds: Bounds<ScaledPixels>,
     pub content_mask: ContentMask<ScaledPixels>,
+    pub transformation: TransformationMatrix,
     #[cfg(target_os = "macos")]
     pub image_buffer: core_video::pixel_buffer::CVPixelBuffer,
 }
