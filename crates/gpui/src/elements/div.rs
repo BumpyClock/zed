@@ -261,7 +261,9 @@ impl Interactivity {
     ) {
         self.mouse_down_listeners
             .push(Box::new(move |event, phase, hitbox, window, cx| {
-                if phase == DispatchPhase::Capture && !hitbox.contains(&window.mouse_position()) {
+                if phase == DispatchPhase::Capture
+                    && !hitbox.contains_window_point(window.mouse_position())
+                {
                     (listener)(event, window, cx)
                 }
             }));
@@ -1905,68 +1907,80 @@ impl Interactivity {
 
                 let translated_bounds = bounds + style.translate;
                 window.with_element_opacity(style.opacity, |window| {
-                    style.paint(translated_bounds, window, cx, |window: &mut Window, cx: &mut App| {
-                        window.with_text_style(style.text_style().cloned(), |window| {
-                            window.with_content_mask(
-                                style.overflow_mask(translated_bounds, window.rem_size()),
-                                |window| {
-                                    window.with_tab_group(tab_group, |window| {
-                                        if let Some(hitbox) = hitbox {
-                                            #[cfg(debug_assertions)]
-                                            self.paint_debug_info(
-                                                global_id, hitbox, &style, window, cx,
-                                            );
+                    style.paint(
+                        translated_bounds,
+                        window,
+                        cx,
+                        |window: &mut Window, cx: &mut App| {
+                            window.with_text_style(style.text_style().cloned(), |window| {
+                                window.with_content_mask(
+                                    style.overflow_mask(translated_bounds, window.rem_size()),
+                                    |window| {
+                                        window.with_tab_group(tab_group, |window| {
+                                            if let Some(hitbox) = hitbox {
+                                                #[cfg(debug_assertions)]
+                                                self.paint_debug_info(
+                                                    global_id, hitbox, &style, window, cx,
+                                                );
 
-                                            if let Some(drag) = cx.active_drag.as_ref() {
-                                                if let Some(mouse_cursor) = drag.cursor_style {
-                                                    window.set_window_cursor_style(mouse_cursor);
+                                                if let Some(drag) = cx.active_drag.as_ref() {
+                                                    if let Some(mouse_cursor) = drag.cursor_style {
+                                                        window
+                                                            .set_window_cursor_style(mouse_cursor);
+                                                    }
+                                                } else {
+                                                    if let Some(mouse_cursor) = style.mouse_cursor {
+                                                        window
+                                                            .set_cursor_style(mouse_cursor, hitbox);
+                                                    }
                                                 }
-                                            } else {
-                                                if let Some(mouse_cursor) = style.mouse_cursor {
-                                                    window.set_cursor_style(mouse_cursor, hitbox);
+
+                                                if let Some(group) = self.group.clone() {
+                                                    GroupHitboxes::push(group, hitbox.id, cx);
                                                 }
-                                            }
 
-                                            if let Some(group) = self.group.clone() {
-                                                GroupHitboxes::push(group, hitbox.id, cx);
-                                            }
+                                                if let Some(area) = self.window_control {
+                                                    window.insert_window_control_hitbox(
+                                                        area,
+                                                        hitbox.clone(),
+                                                    );
+                                                }
 
-                                            if let Some(area) = self.window_control {
-                                                window.insert_window_control_hitbox(
-                                                    area,
-                                                    hitbox.clone(),
+                                                self.paint_mouse_listeners(
+                                                    hitbox,
+                                                    element_state.as_mut(),
+                                                    window,
+                                                    cx,
+                                                );
+                                                self.paint_scroll_listener(
+                                                    hitbox, &style, window, cx,
                                                 );
                                             }
 
-                                            self.paint_mouse_listeners(
-                                                hitbox,
-                                                element_state.as_mut(),
-                                                window,
-                                                cx,
-                                            );
-                                            self.paint_scroll_listener(hitbox, &style, window, cx);
-                                        }
+                                            self.paint_keyboard_listeners(window, cx);
+                                            f(&style, window, cx);
 
-                                        self.paint_keyboard_listeners(window, cx);
-                                        f(&style, window, cx);
+                                            if let Some(_hitbox) = hitbox {
+                                                #[cfg(any(
+                                                    feature = "inspector",
+                                                    debug_assertions
+                                                ))]
+                                                window.insert_inspector_hitbox(
+                                                    _hitbox.id,
+                                                    _inspector_id,
+                                                    cx,
+                                                );
 
-                                        if let Some(_hitbox) = hitbox {
-                                            #[cfg(any(feature = "inspector", debug_assertions))]
-                                            window.insert_inspector_hitbox(
-                                                _hitbox.id,
-                                                _inspector_id,
-                                                cx,
-                                            );
-
-                                            if let Some(group) = self.group.as_ref() {
-                                                GroupHitboxes::pop(group, cx);
+                                                if let Some(group) = self.group.as_ref() {
+                                                    GroupHitboxes::pop(group, cx);
+                                                }
                                             }
-                                        }
-                                    })
-                                },
-                            );
-                        });
-                    });
+                                        })
+                                    },
+                                );
+                            });
+                        },
+                    );
                 });
 
                 ((), element_state)
@@ -2289,7 +2303,10 @@ impl Interactivity {
                             && let Some((drag_value, drag_listener)) = drag_listener.take()
                         {
                             *clicked_state.borrow_mut() = ElementClickedState::default();
-                            let cursor_offset = event.position - hitbox.origin;
+                            let local_position = hitbox
+                                .window_to_local(event.position)
+                                .unwrap_or(event.position);
+                            let cursor_offset = local_position - hitbox.local_bounds.origin;
                             let drag =
                                 (drag_listener)(drag_value.as_ref(), cursor_offset, window, cx);
                             cx.active_drag = Some(AnyDrag {
@@ -2422,10 +2439,10 @@ impl Interactivity {
                 // Use bounds instead of testing hitbox since this is called during prepaint.
                 let check_is_hovered_during_prepaint = Rc::new({
                     let pending_mouse_down = pending_mouse_down.clone();
-                    let source_bounds = hitbox.bounds;
+                    let hitbox = hitbox.clone();
                     move |window: &Window| {
                         pending_mouse_down.borrow().is_none()
-                            && source_bounds.contains(&window.mouse_position())
+                            && hitbox.contains_window_point(window.mouse_position())
                     }
                 });
                 let check_is_hovered = Rc::new({

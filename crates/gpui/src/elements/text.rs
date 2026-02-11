@@ -873,14 +873,14 @@ impl Element for InteractiveText {
 
                     // Use bounds instead of testing hitbox since this is called during prepaint.
                     let check_is_hovered_during_prepaint = Rc::new({
-                        let source_bounds = hitbox.bounds;
+                        let hitbox = hitbox.clone();
                         let text_layout = text_layout.clone();
                         let pending_mouse_down = interactive_state.mouse_down_index.clone();
                         move |window: &Window| {
                             text_layout
                                 .index_for_position(window.mouse_position())
                                 .is_ok()
-                                && source_bounds.contains(&window.mouse_position())
+                                && hitbox.contains_window_point(window.mouse_position())
                                 && pending_mouse_down.get().is_none()
                         }
                     });

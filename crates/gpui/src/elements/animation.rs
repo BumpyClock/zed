@@ -25,13 +25,19 @@ pub struct Animation {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+/// Bounds behavior for easing output validation.
 pub enum EasingBounds {
     /// Output must stay within [0, 1].
     Bounded,
     /// Output may be any finite value (spring/overshoot).
     Unbounded,
     /// Output must stay within the provided range.
-    Range { min: f32, max: f32 },
+    Range {
+        /// Inclusive minimum output value.
+        min: f32,
+        /// Inclusive maximum output value.
+        max: f32,
+    },
 }
 
 impl Animation {

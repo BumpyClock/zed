@@ -712,6 +712,60 @@ impl TransformationMatrix {
         }
         Point::new(output[0].into(), output[1].into())
     }
+
+    /// Apply transformation to a scaled point.
+    pub fn apply_scaled(&self, point: Point<ScaledPixels>) -> Point<ScaledPixels> {
+        let input = [point.x.0, point.y.0];
+        let mut output = self.translation;
+        for (i, output_cell) in output.iter_mut().enumerate() {
+            for (k, input_cell) in input.iter().enumerate() {
+                *output_cell += self.rotation_scale[i][k] * *input_cell;
+            }
+        }
+        Point::new(output[0].into(), output[1].into())
+    }
+
+    /// Returns `true` when this matrix is identity.
+    pub fn is_unit(&self) -> bool {
+        *self == Self::unit()
+    }
+
+    /// Returns `true` when this matrix only contains translation.
+    pub fn is_translation_only(&self) -> bool {
+        self.rotation_scale == [[1.0, 0.0], [0.0, 1.0]]
+    }
+
+    /// Scale only the translation component.
+    pub fn scale_translation(self, factor: f32) -> Self {
+        Self {
+            translation: [self.translation[0] * factor, self.translation[1] * factor],
+            ..self
+        }
+    }
+
+    /// Attempt to compute inverse matrix.
+    pub fn try_inverse(&self) -> Option<Self> {
+        let a = self.rotation_scale[0][0];
+        let b = self.rotation_scale[0][1];
+        let c = self.rotation_scale[1][0];
+        let d = self.rotation_scale[1][1];
+        let det = a * d - b * c;
+        if !det.is_finite() || det.abs() < f32::EPSILON {
+            return None;
+        }
+
+        let inv_det = 1.0 / det;
+        let inv_rotation = [[d * inv_det, -b * inv_det], [-c * inv_det, a * inv_det]];
+        let tx = self.translation[0];
+        let ty = self.translation[1];
+        Some(Self {
+            rotation_scale: inv_rotation,
+            translation: [
+                -(inv_rotation[0][0] * tx + inv_rotation[0][1] * ty),
+                -(inv_rotation[1][0] * tx + inv_rotation[1][1] * ty),
+            ],
+        })
+    }
 }
 
 impl Default for TransformationMatrix {
@@ -951,5 +1005,31 @@ impl PathVertex<Pixels> {
             st_position: self.st_position,
             content_mask: self.content_mask.scale(factor),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ScaledPixels, TransformationMatrix, point};
+    use crate::{px, size};
+
+    #[test]
+    fn transformation_matrix_inverse_round_trips_points() {
+        let matrix = TransformationMatrix::unit()
+            .translate(point(ScaledPixels(12.0), ScaledPixels(-5.0)))
+            .scale(size(1.5, 0.75));
+        let inverse = matrix.try_inverse().expect("invertible matrix");
+        let original = point(px(20.0), px(16.0));
+        let transformed = matrix.apply(original);
+        let recovered = inverse.apply(transformed);
+
+        assert!((recovered.x.0 - original.x.0).abs() < 1e-4);
+        assert!((recovered.y.0 - original.y.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn transformation_matrix_inverse_returns_none_for_singular() {
+        let matrix = TransformationMatrix::unit().scale(size(0.0, 1.0));
+        assert!(matrix.try_inverse().is_none());
     }
 }
